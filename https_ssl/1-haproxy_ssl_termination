@@ -1,41 +1,9 @@
-#!/usr/bin/env bash
-# 1-haproxy_ssl_setup.sh
-# Installs HAProxy, sets up SSL termination using Certbot, and configures HAProxy with web-01 and web-02 backends
-
-# ====== CONFIGURE THESE VARIABLES ======
-DOMAIN="www.holberton.online"        # Your domain with 'www'
-EMAIL="youremail@example.com"        # Your email for Let's Encrypt
-WEB1_IP="18.208.153.152"             # IP of web-01
-WEB2_IP="18.206.244.77"              # IP of web-02
-HAPROXY_PEM="/etc/ssl/certs/haproxy.pem"
-# =====================================
-
-set -e
-
-echo "[*] Updating system and installing dependencies..."
-apt update
-apt install -y haproxy certbot
-
-echo "[*] Stopping HAProxy if running..."
-systemctl stop haproxy || pkill -f haproxy || true
-
-echo "[*] Obtaining SSL certificate for $DOMAIN..."
-certbot certonly --standalone -d "$DOMAIN" --non-interactive --agree-tos -m "$EMAIL"
-
-echo "[*] Building combined PEM for HAProxy..."
-mkdir -p /etc/ssl/certs
-cat /etc/letsencrypt/live/$DOMAIN/privkey.pem /etc/letsencrypt/live/$DOMAIN/fullchain.pem > "$HAPROXY_PEM"
-chmod 644 "$HAPROXY_PEM"
-chown root:root "$HAPROXY_PEM"
-
-echo "[*] Writing HAProxy configuration..."
-cat > /etc/haproxy/haproxy.cfg <<EOL
 global
-    log /dev/log local0
-    log /dev/log local1 notice
+    log /dev/log    local0
+    log /dev/log    local1 notice
     chroot /var/lib/haproxy
-    pidfile /var/run/haproxy.pid
-    maxconn 2000
+    stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+    stats timeout 30s
     user haproxy
     group haproxy
     daemon
@@ -45,31 +13,37 @@ defaults
     mode    http
     option  httplog
     option  dontlognull
-    timeout connect 5000ms
-    timeout client  50000ms
-    timeout server  50000ms
+    timeout connect 5000
+    timeout client  50000
+    timeout server  50000
+    errorfile 400 /etc/haproxy/errors/400.http
+    errorfile 403 /etc/haproxy/errors/403.http
+    errorfile 408 /etc/haproxy/errors/408.http
+    errorfile 500 /etc/haproxy/errors/500.http
+    errorfile 502 /etc/haproxy/errors/502.http
+    errorfile 503 /etc/haproxy/errors/503.http
+    errorfile 504 /etc/haproxy/errors/504.http
 
+# Frontend for HTTP traffic (Port 80)
+# We will just redirect this to HTTPS
 frontend http_front
     bind *:80
+    # This line tells HAProxy to redirect all HTTP requests to HTTPS
     redirect scheme https code 301 if !{ ssl_fc }
 
+# Frontend for HTTPS traffic (Port 443) - THIS IS THE MAIN PART
 frontend https_front
-    bind *:443 ssl crt $HAPROXY_PEM
-    mode http
-    option httplog
+    # Listen on port 443 for secure traffic
+    # 'ssl crt' points to the combined .pem file we created
+    bind *:443 ssl crt /etc/ssl/private/www.me-no.tech.pem
+    
+    # Send all traffic to the 'web_servers' backend
     default_backend web_servers
 
+# Backend: Your two web servers
 backend web_servers
-    mode http
     balance roundrobin
-    option httpchk GET /
-    server web-01 $WEB1_IP:80 check
-    server web-02 $WEB2_IP:80 check
-EOL
-
-echo "[*] Enabling and starting HAProxy..."
-systemctl enable haproxy
-systemctl restart haproxy
-
-echo "[✓] HAProxy installed and configured with SSL termination!"
-echo "[✓] Test it with: curl -sI https://$DOMAIN"
+    # Server web-01 (using its IP from your list)
+    server web-01 13.220.130.13:80 check
+    # Server web-02 (using its IP from your list)
+    server web-02 18.206.158.156:80 check
