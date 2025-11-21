@@ -35,7 +35,7 @@ frontend http_front
 frontend https_front
     # Listen on port 443 for secure traffic
     # 'ssl crt' points to the combined .pem file we created
-    bind *:443 ssl crt /etc/ssl/private/www.liata.tech.pem
+    bind *:443 ssl crt /etc/haproxy/certs/www.liata.tech.pem
     
     # Send all traffic to the 'web_servers' backend
     default_backend web_servers
